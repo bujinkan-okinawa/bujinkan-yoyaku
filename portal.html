@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>武仁舘 管理ポータル</title>
+<style>
+  /* 構成：紺のヘッダー＋タブ／ホーム（4つの入口）／全体管理／会員個人管理／利用者管理。予約画面と同じ配色 */
+  :root{
+    --navy:#1F3A5F; --navy-soft:#e8eef6; --ink:#1d2330; --sub:#687182;
+    --line:#dfe3ea; --bg:#f5f6f8; --card:#ffffff; --head-sub:#c8d4e8;
+    --ok:#137a4a; --ok-soft:#e3f3ea; --ng:#b42323; --ng-soft:#fbe9e9;
+    --warn:#9a6700; --warn-soft:#fff4d6;
+    --muted:#a3aab6; --sun:#c0392b; --sat:#2563a8; --overlay:rgba(15,23,35,.45);
+    --font:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --navy:#8fb2e0; --navy-soft:#1c2a3d; --ink:#e6e9ef; --sub:#9aa3b2;
+      --line:#2c3440; --bg:#11151b; --card:#1a1f27; --head-sub:#9fb3cf;
+      --ok:#4cc38a; --ok-soft:#16301f; --ng:#f07070; --ng-soft:#3a1d1d;
+      --warn:#e0b44c; --warn-soft:#3a2f12;
+      --muted:#5d6572; --sun:#f08a7e; --sat:#7fb0ea; --overlay:rgba(0,0,0,.6);
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --navy:#8fb2e0; --navy-soft:#1c2a3d; --ink:#e6e9ef; --sub:#9aa3b2;
+    --line:#2c3440; --bg:#11151b; --card:#1a1f27; --head-sub:#9fb3cf;
+    --ok:#4cc38a; --ok-soft:#16301f; --ng:#f07070; --ng-soft:#3a1d1d;
+    --warn:#e0b44c; --warn-soft:#3a2f12;
+    --muted:#5d6572; --sun:#f08a7e; --sat:#7fb0ea; --overlay:rgba(0,0,0,.6);
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button:focus-visible,a:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+  [hidden]{display:none !important}
+
+  .hdr{position:sticky;top:0;z-index:20;background:#1F3A5F;color:#fff}
+  .hdr-top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;
+           max-width:1100px;margin:0 auto}
+  .hdr h1{margin:0;font-size:15px;font-weight:700;letter-spacing:.04em}
+  .hdr .who{font-size:12px;color:#c8d4e8}
+  .hdr .out{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:999px;
+            padding:3px 12px;font-size:12px;cursor:pointer}
+  .tabs{display:flex;gap:2px;overflow-x:auto;padding:0 12px;max-width:1100px;margin:0 auto}
+  .tabs button{background:transparent;border:0;color:#c8d4e8;padding:8px 12px;font-size:13px;cursor:pointer;
+               border-bottom:3px solid transparent;white-space:nowrap}
+  .tabs button[aria-current="page"]{color:#fff;border-bottom-color:#fff;font-weight:700}
+
+  .wrap{padding:16px;max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card h2{margin:0 0 10px;font-size:16px}
+  .card h3{margin:14px 0 8px;font-size:14px;color:var(--sub)}
+  .muted{color:var(--sub);font-size:13px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .grow{flex:1;min-width:0}
+
+  .entries{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .entry{display:flex;flex-direction:column;gap:4px;text-align:left;cursor:pointer;background:var(--card);
+         border:1px solid var(--line);border-radius:12px;padding:16px}
+  .entry:hover{border-color:var(--navy)}
+  .entry b{font-size:16px;color:var(--navy)}
+  .entry[disabled]{cursor:default;opacity:.55}
+  .entry[disabled]:hover{border-color:var(--line)}
+  .tag{display:inline-block;font-size:11px;border-radius:999px;padding:1px 8px;background:var(--navy-soft);color:var(--navy)}
+  .tag.ok{background:var(--ok-soft);color:var(--ok)} .tag.ng{background:var(--ng-soft);color:var(--ng)}
+  .tag.warn{background:var(--warn-soft);color:var(--warn)}
+
+  .btn{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px}
+  .btn.pri{background:var(--navy);border-color:var(--navy);color:var(--card);font-weight:700}
+  .btn.sm{padding:4px 10px;font-size:13px}
+  .btn[aria-pressed="true"]{background:var(--navy-soft);border-color:var(--navy);color:var(--navy);font-weight:700}
+  .btn:disabled{opacity:.5;cursor:default}
+  input[type=text],input[type=search],input[type=email],input[type=date],select,textarea{
+    border:1px solid var(--line);background:var(--card);border-radius:8px;padding:7px 10px;font-size:14px;width:100%}
+  textarea{min-height:70px;resize:vertical}
+  input[readonly],textarea[readonly]{background:var(--bg);color:var(--sub)}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+  .stat{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .stat small{display:block;color:var(--sub);font-size:12px}
+  .stat b{font-size:22px;font-variant-numeric:tabular-nums}
+
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  th{background:var(--bg);font-size:12px;color:var(--sub);font-weight:700;position:sticky;top:0}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.click{cursor:pointer} tr.click:hover td{background:var(--navy-soft)}
+  tbody tr:last-child td{border-bottom:0}
+
+  .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px 14px}
+  .form label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--sub)}
+  .form label.wide{grid-column:1/-1}
+
+  .subtabs{display:flex;gap:6px;flex-wrap:wrap}
+
+  /* カレンダー（範囲指定つき） */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .cal-head b{font-size:16px;font-variant-numeric:tabular-nums}
+  .nav{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:var(--card);cursor:pointer}
+  .cal{border:1px solid var(--line);border-radius:10px;overflow:hidden;max-width:460px}
+  .dow,.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+  .dow div{font-size:11px;text-align:center;padding:4px 0;color:var(--sub);border-bottom:1px solid var(--line)}
+  .dow div:first-child{color:var(--sun)} .dow div:last-child{color:var(--sat)}
+  .cell{height:48px;border:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line);
+        background:transparent;padding:3px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;min-width:0}
+  .grid .cell:nth-child(7n){border-right:0}
+  .cell .d{font-size:12px;font-variant-numeric:tabular-nums}
+  .cell.sun .d{color:var(--sun)} .cell.sat .d{color:var(--sat)}
+  .cell.blank{cursor:default}
+  .cell.sess .d{font-weight:700}
+  .cell.inr{background:var(--navy-soft)}
+  .cell.edge{background:var(--navy)} .cell.edge .d{color:var(--card) !important}
+  .dot{font-size:10px;line-height:1;border-radius:4px;padding:2px 4px}
+  .dot.a{background:var(--ok-soft);color:var(--ok)} .dot.l{background:var(--warn-soft);color:var(--warn)}
+  .dot.v{background:var(--navy-soft);color:var(--navy)} .dot.x{background:var(--ng-soft);color:var(--ng)}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--sub);margin-top:6px}
+  .split{display:grid;grid-template-columns:minmax(0,460px) minmax(0,1fr);gap:16px;align-items:start}
+  @media (max-width:760px){.split{grid-template-columns:minmax(0,1fr)}}
+
+  .gate{max-width:460px;margin:60px auto;text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center;padding:0 16px}
+  .gate b{font-size:17px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);
+         padding:10px 16px;border-radius:10px;font-size:14px;z-index:50;max-width:90vw}
+  .toast.ng{background:var(--ng);color:#fff}
+  .busy{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:center;justify-content:center;z-index:40;color:#fff}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate">
+  <b>武仁舘 管理ポータル</b>
+  <div id="gateMsg" class="muted">読み込み中…</div>
+  <div id="gbtn"></div>
+</div>
+
+<div id="app" hidden>
+  <header class="hdr">
+    <div class="hdr-top">
+      <div>
+        <h1>武仁舘 管理ポータル</h1>
+        <div class="who" id="who"></div>
+      </div>
+      <button class="out" id="logout" type="button">ログアウト</button>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="画面"></nav>
+  </header>
+  <main class="wrap" id="view"></main>
+</div>
+
+<div id="busy" class="busy" hidden>処理中…</div>
+<div id="toast" class="toast" hidden role="status"></div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+(function () {
+  'use strict';
+
+  // Apps Script の本番デプロイ（予約画面と同じURL）
+  var GAS_URL = 'https://script.google.com/macros/s/AKfycbza_1ROShhfxcEoDEoqIKYxcNBIFTsSvIeJhAZ57XaZF13R5By0ogD_t6dtzMutRHzm9g/exec';
+  var WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+  var TOKEN_KEY = 'bujinkan.portal.token';
+
+  var st = {
+    token: '', boot: null, view: 'home',
+    members: null,
+    // 全体管理
+    range: null, pick: null, calYm: '', summary: null, activeOnly: true, sortBy: 'kana',
+    // 会員個人管理
+    q: '', stateFilter: '在籍', member: null, memberTab: 'info', exams: [], editExam: null,
+    att: null, attFrom: '', attTo: '', mRange: null, mPick: null, mCalYm: '',
+    users: null,
+  };
+
+  // ------------------------------------------------------------
+  // ログイン
+  // ------------------------------------------------------------
+  function start() {
+    fetch(GAS_URL + '?api=portalConfig').then(function (r) { return r.json(); }).then(function (cfg) {
+      if (!cfg.clientId) return gate('設定が未完了です', 'Apps Script の PORTAL_CLIENT_ID を設定してください。');
+      waitGsi(function () {
+        google.accounts.id.initialize({ client_id: cfg.clientId, callback: onCredential, auto_select: true });
+        var saved = '';
+        try { saved = sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) {}
+        if (saved && tokenLeft(saved) > 60) { st.token = saved; bootstrap(); }
+        else showSignIn('');
+      });
+    }).catch(function () { gate('接続できませんでした', '通信状態を確認して、開き直してください。'); });
+  }
+
+  function waitGsi(fn) {
+    if (window.google && google.accounts && google.accounts.id) return fn();
+    setTimeout(function () { waitGsi(fn); }, 100);
+  }
+
+  function showSignIn(msg) {
+    st.token = '';
+    try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    el('app').hidden = true;
+    el('gate').hidden = false;
+    el('gateMsg').textContent = msg || '道場から登録されたGoogleアカウントでログインしてください。';
+    el('gbtn').innerHTML = '';
+    google.accounts.id.renderButton(el('gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'ja' });
+    google.accounts.id.prompt();
+  }
+
+  function onCredential(res) {
+    st.token = res.credential;
+    try { sessionStorage.setItem(TOKEN_KEY, st.token); } catch (e) {}
+    bootstrap();
+  }
+
+  /** IDトークンの残り秒数（中身を読むだけ。検証はサーバーで行います）。 */
+  function tokenLeft(token) {
+    try {
+      var p = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      return p.exp - Date.now() / 1000;
+    } catch (e) { return 0; }
+  }
+
+  function bootstrap() {
+    el('gateMsg').textContent = '確認中…';
+    api('apiPortalBootstrap', [], function (res) {
+      st.boot = res;
+      el('gate').hidden = true;
+      el('app').hidden = false;
+      el('who').textContent = (res.user.name || res.user.email) + '（' + res.user.role + '）';
+      go('home');
+    });
+  }
+
+  el('logout').addEventListener('click', function () {
+    google.accounts.id.disableAutoSelect();
+    showSignIn('ログアウトしました。');
+  });
+
+  // ------------------------------------------------------------
+  // 画面の切り替え
+  // ------------------------------------------------------------
+  var VIEWS = [
+    { id: 'home',    label: 'ホーム' },
+    { id: 'overall', label: '全体管理',     need: 'attendance' },
+    { id: 'members', label: '会員個人管理', need: 'member' },
+    { id: 'fee',     label: '徴収管理',     need: 'fee',   soon: true },
+    { id: 'sales',   label: '物販管理',     need: 'sales', soon: true },
+    { id: 'users',   label: '利用者管理',   need: 'users' },
+  ];
+
+  function can(p) { return st.boot.user.can.indexOf(p) !== -1; }
+  function allowed(v) { return !v.need || can(v.need); }
+
+  function go(view) {
+    st.view = view;
+    el('tabs').innerHTML = VIEWS.filter(function (v) { return allowed(v) && !v.soon; }).map(function (v) {
+      return '<button type="button" data-go="' + v.id + '"' +
+        (v.id === view || (view === 'member' && v.id === 'members') ? ' aria-current="page"' : '') + '>' + v.label + '</button>';
+    }).join('');
+    ({ home: renderHome, overall: renderOverall, members: renderMembers, member: renderMember, users: renderUsers }[view])();
+    window.scrollTo(0, 0);
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest('[data-go]');
+    if (t) go(t.getAttribute('data-go'));
+  });
+
+  // ------------------------------------------------------------
+  // ホーム
+  // ------------------------------------------------------------
+  var ENTRY_NOTE = {
+    overall: '在籍数・期間ごとの出席日数',
+    members: '会員の登録・編集、進級、出欠カレンダー',
+    fee:     '会費・振込・現金の入金登録（準備中）',
+    sales:   '物販の申込・受け渡し（準備中）',
+    users:   'ポータルを使う人と役割の登録',
+  };
+
+  function renderHome() {
+    el('view').innerHTML =
+      '<div class="entries">' + VIEWS.filter(function (v) { return v.id !== 'home' && allowed(v); }).map(function (v) {
+        return '<button type="button" class="entry"' + (v.soon ? ' disabled' : ' data-go="' + v.id + '"') + '>' +
+          '<b>' + v.label + '</b><span class="muted">' + ENTRY_NOTE[v.id] + '</span>' +
+          (v.soon ? '<span><span class="tag warn">準備中</span></span>' : '') + '</button>';
+      }).join('') + '</div>';
+  }
+
+  // ------------------------------------------------------------
+  // 全体管理：在籍数＋期間を指定した出席日数
+  // ------------------------------------------------------------
+  function renderOverall() {
+    if (!st.range) {
+      var t = st.boot.today;
+      st.range = { from: t.slice(0, 8) + '01', to: t };
+      st.calYm = t.slice(0, 7);
+    }
+    var head = '<div class="card"><h2>在籍状況</h2><div id="ovStats" class="stats"><span class="muted">読み込み中…</span></div></div>';
+    el('view').innerHTML = head +
+      '<div class="card"><h2>出席日数（期間指定）</h2>' +
+      '<div class="split"><div>' + presetButtons('ov') +
+      '<div class="row" style="margin:8px 0"><input type="date" id="ovFrom" value="' + st.range.from + '" style="width:auto">' +
+      '<span>〜</span><input type="date" id="ovTo" value="' + st.range.to + '" style="width:auto"></div>' +
+      '<div id="ovCal"></div><div class="legend">カレンダーで開始日と終了日を順に押すと期間を選べます。太字は稽古日。</div></div>' +
+      '<div><div class="row" style="margin-bottom:8px">' +
+      '<label class="row muted"><input type="checkbox" id="ovActive"' + (st.activeOnly ? ' checked' : '') + '> 在籍者のみ</label>' +
+      '<span class="grow"></span><select id="ovSort" style="width:auto">' +
+      opt('kana', 'カナ順', st.sortBy) + opt('total', '出席日数の多い順', st.sortBy) + opt('rank', '段級順', st.sortBy) +
+      '</select></div><div id="ovTable" class="muted">集計中…</div></div></div></div>';
+
+    loadMembers(function () {
+      if (!el('ovStats')) return;   // 読み込み中に別の画面へ移った
+      var m = st.members;
+      var n = function (s) { return m.filter(function (x) { return x.state === s; }).length; };
+      el('ovStats').innerHTML = stat('在籍', n('在籍')) + stat('休会', n('休会')) + stat('退会', n('退会')) +
+        stat('LINE連携（在籍）', m.filter(function (x) { return x.state === '在籍' && x.line; }).length);
+    });
+
+    bindPresets('ov', function (r) { st.range = r; st.calYm = r.to.slice(0, 7); loadSummary(); });
+    el('ovFrom').onchange = el('ovTo').onchange = function () {
+      st.range = { from: el('ovFrom').value, to: el('ovTo').value };
+      loadSummary();
+    };
+    el('ovActive').onchange = function () { st.activeOnly = this.checked; drawSummary(); };
+    el('ovSort').onchange = function () { st.sortBy = this.value; drawSummary(); };
+    loadSummary();
+  }
+
+  function loadSummary() {
+    if (!st.range.from || !st.range.to || st.range.from > st.range.to) return toast('期間を確認してください', true);
+    el('ovFrom').value = st.range.from; el('ovTo').value = st.range.to;
+    drawOvCal();
+    el('ovTable').innerHTML = '<span class="muted">集計中…</span>';
+    api('apiAttendance', [st.range.from, st.range.to, ''], function (res) {
+      st.summary = res;
+      if (st.view !== 'overall') return;
+      drawOvCal();
+      drawSummary();
+    }, true);
+  }
+
+  function drawOvCal() {
+    var sess = {};
+    (st.summary && st.summary.sessionDays || []).forEach(function (d) { sess[d] = 1; });
+    calendar(el('ovCal'), st.calYm, {
+      range: st.range, pick: st.pick, sess: sess,
+      onNav: function (ym) { st.calYm = ym; drawOvCal(); },
+      onPick: function (d) {
+        if (!st.pick) { st.pick = d; drawOvCal(); return; }
+        st.range = st.pick <= d ? { from: st.pick, to: d } : { from: d, to: st.pick };
+        st.pick = null;
+        loadSummary();
+      },
+    });
+  }
+
+  function drawSummary() {
+    var s = st.summary;
+    if (!s) return;
+    var list = s.summary.filter(function (x) { return !st.activeOnly || x.state === '在籍'; });
+    var ranks = st.boot.ranks;
+    list.sort(function (a, b) {
+      if (st.sortBy === 'total') return b.total - a.total || cmpKana(a, b);
+      if (st.sortBy === 'rank') return ranks.indexOf(b.rank) - ranks.indexOf(a.rank) || cmpKana(a, b);
+      return cmpKana(a, b);
+    });
+    var multi = s.months.length > 1;
+    el('ovTable').innerHTML =
+      '<div class="muted" style="margin-bottom:6px">' + esc(dateLabel(s.from)) + ' 〜 ' + esc(dateLabel(s.to)) +
+      '　稽古日 ' + s.sessionDays.length + ' 日　対象 ' + list.length + ' 人</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>氏名</th><th>段級</th><th class="num">出席日数</th><th class="num">出席率</th><th class="num">見学</th>' +
+      (multi ? s.months.map(function (ym) { return '<th class="num">' + Number(ym.slice(5)) + '月</th>'; }).join('') : '') +
+      '</tr></thead><tbody>' + list.map(function (x) {
+        var rate = s.sessionDays.length ? Math.round(x.total / s.sessionDays.length * 100) + '%' : '－';
+        return '<tr class="click" data-member="' + esc(x.id) + '"><td>' + esc(x.name) +
+          (x.state !== '在籍' ? ' <span class="tag">' + esc(x.state) + '</span>' : '') + '</td><td>' + esc(x.rank) + '</td>' +
+          '<td class="num"><b>' + x.total + '</b></td><td class="num">' + rate + '</td><td class="num">' + (x.visit || '') + '</td>' +
+          (multi ? x.byMonth.map(function (n) { return '<td class="num">' + (n || '') + '</td>'; }).join('') : '') + '</tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="legend">出席日数は「出席」「遅刻」の日数（同じ日に2回出ても1日）。出席率は期間内の稽古日数に対する割合です（所属クラス外の稽古日も含むため目安）。</div>';
+  }
+
+  // ------------------------------------------------------------
+  // 会員個人管理：一覧
+  // ------------------------------------------------------------
+  function renderMembers() {
+    el('view').innerHTML = '<div class="card"><div class="row" style="margin-bottom:10px">' +
+      '<input type="search" id="q" class="grow" placeholder="氏名・カナ・会員IDで検索" value="' + esc(st.q) + '" style="width:auto">' +
+      '<select id="sf" style="width:auto">' + ['在籍', '休会', '退会', 'すべて'].map(function (s) { return opt(s, s, st.stateFilter); }).join('') + '</select>' +
+      (can('memberEdit') ? '<button type="button" class="btn pri" id="newMember">新規登録</button>' : '') +
+      '</div><div id="mlist" class="muted">読み込み中…</div></div>';
+    el('q').oninput = function () { st.q = this.value; drawMemberList(); };
+    el('sf').onchange = function () { st.stateFilter = this.value; drawMemberList(); };
+    if (el('newMember')) el('newMember').onclick = function () { openMember(''); };
+    loadMembers(function () { if (st.view === 'members') drawMemberList(); }, true);
+  }
+
+  function drawMemberList() {
+    var q = st.q.trim().toLowerCase();
+    var list = st.members.filter(function (m) {
+      if (st.stateFilter !== 'すべて' && m.state !== st.stateFilter) return false;
+      return !q || (m.id + ' ' + m.name + ' ' + m.kana).toLowerCase().indexOf(q) !== -1;
+    }).sort(cmpKana);
+    el('mlist').innerHTML = list.length ? '<div class="tbl-wrap"><table><thead><tr><th>会員ID</th><th>氏名</th><th>カナ</th><th>段級</th><th>種別</th><th>状態</th><th>LINE</th></tr></thead><tbody>' +
+      list.map(function (m) {
+        return '<tr class="click" data-member="' + esc(m.id) + '"><td>' + esc(m.id) + '</td><td>' + esc(m.name) + '</td><td>' + esc(m.kana) +
+          '</td><td>' + esc(m.rank) + '</td><td>' + esc(m.kind) + '</td><td>' + esc(m.state) + '</td><td>' + (m.line ? '連携済' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div><div class="legend">' + list.length + ' 人</div>'
+      : '<span class="muted">該当する会員はいません。</span>';
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest('[data-member]');
+    if (t && can('member')) openMember(t.getAttribute('data-member'));
+  });
+
+  function openMember(id) {
+    api('apiMemberGet', [id], function (res) {
+      st.member = res.member;
+      st.exams = res.exams;
+      st.editExam = null;
+      st.memberTab = 'info';
+      st.att = null; st.mRange = null; st.mPick = null;
+      st.mCalYm = st.boot.today.slice(0, 7);
+      go('member');
+    });
+  }
+
+  // ------------------------------------------------------------
+  // 会員個人管理：詳細（基本情報／進級／出欠）
+  // ------------------------------------------------------------
+  function renderMember() {
+    var m = st.member;
+    var name = fieldValue('氏名');
+    var tabs = [['info', '基本情報']];
+    if (m.id && can('exam')) tabs.push(['exam', '進級']);
+    if (m.id && can('attendance')) tabs.push(['att', '出欠']);
+    el('view').innerHTML = '<div class="row"><button type="button" class="btn sm" data-go="members">← 一覧へ</button>' +
+      '<b class="grow" style="font-size:18px">' + (m.id ? esc(name) + ' <span class="muted">' + esc(m.id) + '　' + esc(fieldValue('現在の級・段')) + '</span>' : '新規登録') + '</b></div>' +
+      '<div class="subtabs">' + tabs.map(function (t) {
+        return '<button type="button" class="btn sm" data-mtab="' + t[0] + '" aria-pressed="' + (st.memberTab === t[0]) + '">' + t[1] + '</button>';
+      }).join('') + '</div><div id="mbody"></div>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-mtab]'), function (b) {
+      b.onclick = function () { st.memberTab = b.getAttribute('data-mtab'); renderMember(); };
+    });
+    ({ info: drawInfo, exam: drawExams, att: drawAttendance }[st.memberTab])();
+  }
+
+  function fieldValue(name) {
+    var f = st.member.fields.filter(function (x) { return x.name === name; })[0];
+    return f ? f.value : '';
+  }
+
+  function drawInfo() {
+    var editable = can('memberEdit');
+    el('mbody').innerHTML = '<div class="card"><form id="mform" class="form">' + st.member.fields.map(function (f) {
+      var ro = f.readonly || !editable;
+      if (!st.member.id && f.name === '会員ID') return '';
+      var input;
+      if (f.type === 'select' && !ro) {
+        var opts = f.options.slice();
+        if (f.value && opts.indexOf(f.value) === -1) opts.unshift(f.value);
+        input = '<select name="' + esc(f.name) + '"><option value=""></option>' + opts.map(function (o) { return opt(o, o, f.value); }).join('') + '</select>';
+      } else if (f.type === 'textarea') {
+        input = '<textarea name="' + esc(f.name) + '"' + (ro ? ' readonly' : '') + '>' + esc(f.value) + '</textarea>';
+      } else {
+        input = '<input type="' + (f.type === 'date' && !ro ? 'date' : 'text') + '" name="' + esc(f.name) + '" value="' + esc(f.value) + '"' + (ro ? ' readonly' : '') + '>';
+      }
+      return '<label' + (f.type === 'textarea' ? ' class="wide"' : '') + '>' + esc(f.name) + input + '</label>';
+    }).join('') + '</form>' +
+      (editable ? '<div class="row" style="margin-top:14px"><button type="button" class="btn pri" id="msave">' + (st.member.id ? '保存する' : '登録する') + '</button></div>' : '') +
+      '</div>';
+    if (!editable) return;
+    el('msave').onclick = function () {
+      var values = {};
+      st.member.fields.forEach(function (f) {
+        if (f.readonly) return;
+        var input = el('mform').elements[f.name];
+        if (input) values[f.name] = input.value;
+      });
+      api('apiMemberSave', [st.member.id, values], function (res) {
+        toast(st.member.id ? '保存しました' : '登録しました（' + res.id + '）');
+        st.members = null;
+        openMember(res.id);
+      });
+    };
+  }
+
+  function drawExams() {
+    var b = st.boot;
+    var e = st.editExam || { row: '', rank: '', date: b.today, result: '合格', judge: '', comment: '', belong: '', note: '' };
+    el('mbody').innerHTML = '<div class="card"><h2>' + (e.row ? '進級の記録を直す' : '進級を登録する') + '</h2><form id="xform" class="form">' +
+      '<label>級・段<select name="rank"><option value=""></option>' + b.ranks.map(function (r) { return opt(r, r, e.rank); }).join('') + '</select></label>' +
+      '<label>取得日（審査日）<input type="date" name="date" value="' + esc(e.date) + '"></label>' +
+      '<label>合否<select name="result">' + b.examResults.map(function (r) { return opt(r, r, e.result); }).join('') + '</select></label>' +
+      '<label>所属<select name="belong"><option value=""></option>' + b.belongs.map(function (r) { return opt(r, r, e.belong); }).join('') + '</select></label>' +
+      '<label>審査員<input type="text" name="judge" value="' + esc(e.judge) + '"></label>' +
+      '<label class="wide">評価コメント<textarea name="comment">' + esc(e.comment) + '</textarea></label>' +
+      '<label class="wide">備考<textarea name="note">' + esc(e.note) + '</textarea></label>' +
+      '</form><div class="row" style="margin-top:12px"><button type="button" class="btn pri" id="xsave">' + (e.row ? '保存する' : '登録する') + '</button>' +
+      (e.row ? '<button type="button" class="btn" id="xcancel">やめる</button>' : '') +
+      '<span class="muted">合格を登録すると、最新の合格の段級が「現在の級・段」に反映されます。</span></div></div>' +
+      '<div class="card"><h2>進級の履歴</h2>' + (st.exams.length ? '<div class="tbl-wrap"><table><thead><tr><th>取得日</th><th>級・段</th><th>合否</th><th>所属</th><th>審査員</th><th>評価コメント</th><th></th></tr></thead><tbody>' +
+      st.exams.map(function (x, i) {
+        return '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.rank) + '</td><td>' + resultTag(x.result) + '</td><td>' + esc(x.belong) + '</td><td>' + esc(x.judge) +
+          '</td><td style="white-space:normal;min-width:200px">' + esc(x.comment) + '</td><td><button type="button" class="btn sm" data-xedit="' + i + '">直す</button></td></tr>';
+      }).join('') + '</tbody></table></div>' : '<span class="muted">まだ記録がありません。</span>') + '</div>';
+
+    el('xsave').onclick = function () {
+      var f = el('xform').elements;
+      var exam = { rank: f.rank.value, date: f.date.value, result: f.result.value, belong: f.belong.value,
+        judge: f.judge.value, comment: f.comment.value, note: f.note.value };
+      api('apiExamSave', [st.member.id, e.row, exam], function (res) {
+        st.exams = res.exams;
+        st.editExam = null;
+        st.member.fields.forEach(function (x) { if (x.name === '現在の級・段') x.value = res.rank; });
+        st.members = null;
+        toast('保存しました');
+        renderMember();
+      });
+    };
+    if (el('xcancel')) el('xcancel').onclick = function () { st.editExam = null; drawExams(); };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-xedit]'), function (btn) {
+      btn.onclick = function () { st.editExam = st.exams[Number(btn.getAttribute('data-xedit'))]; drawExams(); window.scrollTo(0, 0); };
+    });
+  }
+
+  function resultTag(r) {
+    var cls = r === '合格' ? 'ok' : r === '不合格' ? 'ng' : '';
+    return '<span class="tag ' + cls + '">' + esc(r || '－') + '</span>';
+  }
+
+  /** 出欠：月カレンダーと、カレンダーで選んだ期間の出席日数。 */
+  function drawAttendance() {
+    el('mbody').innerHTML = '<div class="card"><div class="split"><div><div id="mCal"></div>' +
+      '<div class="legend"><span class="dot a">出</span>出席 <span class="dot l">遅</span>遅刻 <span class="dot v">見</span>見学 <span class="dot x">欠</span>欠席</div>' +
+      '<div class="legend">開始日と終了日を順に押すと、その期間の出席日数を数えます。</div></div>' +
+      '<div>' + presetButtons('m') + '<div id="mStats" class="stats" style="margin-top:10px"></div><div id="mMonths" style="margin-top:10px"></div></div></div></div>';
+    bindPresets('m', function (r) { st.mRange = r; st.mCalYm = r.to.slice(0, 7); ensureAtt(); });
+    if (!st.mRange) {
+      var t = st.boot.today;
+      st.mRange = { from: t.slice(0, 8) + '01', to: monthEnd(t.slice(0, 7)) };
+    }
+    ensureAtt();
+  }
+
+  /** 表示中の月と選択中の期間を含むように、出欠を読み込みます（読み込み済みならそのまま）。 */
+  function ensureAtt() {
+    var from = minStr(st.mRange.from, st.mCalYm + '-01');
+    var to = maxStr(st.mRange.to, monthEnd(st.mCalYm));
+    if (st.att && st.attFrom <= from && st.attTo >= to) return drawAtt();
+    // 前後に余裕を持って読みます（月を送るたびに読み直さないため）
+    from = minStr(from, shiftYm(st.mCalYm, -6) + '-01');
+    to = maxStr(to, monthEnd(shiftYm(st.mCalYm, 1)));
+    api('apiAttendance', [from, to, st.member.id], function (res) {
+      st.att = res; st.attFrom = from; st.attTo = to;
+      if (st.view === 'member' && st.memberTab === 'att') drawAtt();
+    }, true);
+  }
+
+  function drawAtt() {
+    var c = st.att.calendar;
+    var sess = {};
+    st.att.sessionDays.forEach(function (d) { sess[d] = 1; });
+    calendar(el('mCal'), st.mCalYm, {
+      range: st.mRange, pick: st.mPick, sess: sess,
+      mark: function (d) {
+        if (c.attend[d] === '遅刻') return '<span class="dot l">遅</span>';
+        if (c.attend[d]) return '<span class="dot a">出</span>';
+        if (c.visit[d]) return '<span class="dot v">見</span>';
+        if (c.absent[d]) return '<span class="dot x">欠</span>';
+        return '';
+      },
+      onNav: function (ym) { st.mCalYm = ym; ensureAtt(); },
+      onPick: function (d) {
+        if (!st.mPick) { st.mPick = d; drawAtt(); return; }
+        st.mRange = st.mPick <= d ? { from: st.mPick, to: d } : { from: d, to: st.mPick };
+        st.mPick = null;
+        ensureAtt();
+      },
+    });
+
+    var r = st.mRange;
+    var inR = function (d) { return d >= r.from && d <= r.to; };
+    var days = Object.keys(c.attend).filter(inR);
+    var sessN = st.att.sessionDays.filter(inR).length;
+    el('mStats').innerHTML = '<div class="muted" style="grid-column:1/-1">' + esc(dateLabel(r.from)) + ' 〜 ' + esc(dateLabel(r.to)) + '</div>' +
+      stat('出席日数', days.length) + stat('稽古日数', sessN) +
+      stat('出席率', sessN ? Math.round(days.length / sessN * 100) + '%' : '－') +
+      stat('見学', Object.keys(c.visit).filter(inR).length);
+
+    var months = [];
+    for (var ym = r.from.slice(0, 7); ym <= r.to.slice(0, 7); ym = shiftYm(ym, 1)) months.push(ym);
+    el('mMonths').innerHTML = months.length > 1 ? '<div class="tbl-wrap"><table><thead><tr><th>月</th><th class="num">出席日数</th><th class="num">稽古日数</th></tr></thead><tbody>' +
+      months.map(function (ym) {
+        var inM = function (d) { return d.indexOf(ym) === 0 && inR(d); };
+        return '<tr><td>' + ym.slice(0, 4) + '年' + Number(ym.slice(5)) + '月</td><td class="num">' + days.filter(inM).length +
+          '</td><td class="num">' + st.att.sessionDays.filter(inM).length + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '';
+  }
+
+  // ------------------------------------------------------------
+  // 利用者管理
+  // ------------------------------------------------------------
+  var ROLE_NOTE = {
+    '管理者': 'すべての画面と利用者の登録',
+    '事務':   '会員（個人情報を含む）の登録・編集、進級、出欠、徴収、物販',
+    '会計':   '徴収管理と会員の基本情報',
+    '指導者': '会員の基本情報（住所・電話などは見えません）、進級の登録、出欠',
+  };
+
+  function renderUsers() {
+    el('view').innerHTML = '<div class="card"><h2>利用者を登録する</h2><form id="uform" class="form">' +
+      '<label>Googleアカウント（メールアドレス）<input type="email" name="email" placeholder="example@gmail.com"></label>' +
+      '<label>氏名<input type="text" name="name"></label>' +
+      '<label>役割<select name="role">' + st.boot.roles.map(function (r) { return opt(r, r, '指導者'); }).join('') + '</select></label>' +
+      '<label>状態<select name="state">' + opt('有効', '有効', '有効') + opt('停止', '停止', '') + '</select></label>' +
+      '</form><div class="row" style="margin-top:12px"><button type="button" class="btn pri" id="usave">保存する</button>' +
+      '<span class="muted">登録済みのメールアドレスを入れると、その人の内容を上書きします。</span></div>' +
+      '<h3>役割でできること</h3><div class="tbl-wrap"><table><tbody>' + Object.keys(ROLE_NOTE).map(function (r) {
+        return '<tr><th style="position:static">' + r + '</th><td style="white-space:normal">' + ROLE_NOTE[r] + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>' +
+      '<div class="card"><h2>利用者一覧</h2><div id="ulist" class="muted">読み込み中…</div></div>';
+
+    el('usave').onclick = function () {
+      var f = el('uform').elements;
+      api('apiPortalUserSave', [{ email: f.email.value, name: f.name.value, role: f.role.value, state: f.state.value }], function (res) {
+        st.users = res.users;
+        el('uform').reset();
+        toast('保存しました');
+        drawUsers();
+      });
+    };
+    api('apiPortalUsers', [], function (res) { st.users = res.users; if (st.view === 'users') drawUsers(); }, true);
+  }
+
+  function drawUsers() {
+    el('ulist').innerHTML = '<div class="tbl-wrap"><table><thead><tr><th>メールアドレス</th><th>氏名</th><th>役割</th><th>状態</th><th>最終利用</th><th></th></tr></thead><tbody>' +
+      st.users.map(function (u, i) {
+        return '<tr><td>' + esc(u.email) + '</td><td>' + esc(u.name) + '</td><td>' + esc(u.role) + '</td><td>' +
+          '<span class="tag ' + (u.state === '有効' ? 'ok' : 'ng') + '">' + esc(u.state) + '</span></td><td>' + esc(u.lastSeen) +
+          '</td><td><button type="button" class="btn sm" data-uedit="' + i + '">直す</button></td></tr>';
+      }).join('') + '</tbody></table></div>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-uedit]'), function (btn) {
+      btn.onclick = function () {
+        var u = st.users[Number(btn.getAttribute('data-uedit'))];
+        var f = el('uform').elements;
+        f.email.value = u.email; f.name.value = u.name; f.role.value = u.role; f.state.value = u.state;
+        window.scrollTo(0, 0);
+      };
+    });
+  }
+
+  // ------------------------------------------------------------
+  // カレンダー（範囲指定つき）
+  // ------------------------------------------------------------
+  function calendar(box, ym, o) {
+    var y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
+    var first = new Date(y, m - 1, 1).getDay();
+    var last = new Date(y, m, 0).getDate();
+    var cells = '';
+    for (var i = 0; i < first; i++) cells += '<div class="cell blank"></div>';
+    for (var d = 1; d <= last; d++) {
+      var key = ym + '-' + pad(d);
+      var dow = (first + d - 1) % 7;
+      var cls = ['cell'];
+      if (dow === 0) cls.push('sun');
+      if (dow === 6) cls.push('sat');
+      if (o.sess && o.sess[key]) cls.push('sess');
+      if (o.pick === key || (!o.pick && o.range && (key === o.range.from || key === o.range.to))) cls.push('edge');
+      else if (!o.pick && o.range && key > o.range.from && key < o.range.to) cls.push('inr');
+      cells += '<button type="button" class="' + cls.join(' ') + '" data-day="' + key + '"><span class="d">' + d + '</span>' +
+        (o.mark ? o.mark(key) : '') + '</button>';
+    }
+    box.innerHTML = '<div class="cal-head"><button type="button" class="nav" data-cnav="-1" aria-label="前の月">‹</button>' +
+      '<b>' + y + '年' + m + '月</b><button type="button" class="nav" data-cnav="1" aria-label="次の月">›</button></div>' +
+      '<div class="cal"><div class="dow">' + WEEK.map(function (w) { return '<div>' + w + '</div>'; }).join('') + '</div>' +
+      '<div class="grid">' + cells + '</div></div>' +
+      (o.pick ? '<div class="legend">開始日：' + esc(dateLabel(o.pick)) + '　→ 終了日を押してください</div>' : '');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-cnav]'), function (b) {
+      b.onclick = function () { o.onNav(shiftYm(ym, Number(b.getAttribute('data-cnav')))); };
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-day]'), function (b) {
+      b.onclick = function () { o.onPick(b.getAttribute('data-day')); };
+    });
+  }
+
+  /** よく使う期間のボタン。 */
+  function presetButtons(prefix) {
+    return '<div class="row">' + [['month', '今月'], ['prev', '先月'], ['3m', '直近3か月'], ['fy', '今年度']].map(function (p) {
+      return '<button type="button" class="btn sm" data-preset="' + prefix + ':' + p[0] + '">' + p[1] + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function bindPresets(prefix, fn) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-preset^="' + prefix + ':"]'), function (b) {
+      b.onclick = function () {
+        var t = st.boot.today, ym = t.slice(0, 7), kind = b.getAttribute('data-preset').split(':')[1];
+        if (kind === 'month') fn({ from: ym + '-01', to: monthEnd(ym) });
+        if (kind === 'prev') fn({ from: shiftYm(ym, -1) + '-01', to: monthEnd(shiftYm(ym, -1)) });
+        if (kind === '3m') fn({ from: shiftYm(ym, -2) + '-01', to: monthEnd(ym) });
+        if (kind === 'fy') {
+          var y = Number(t.slice(0, 4)) - (Number(t.slice(5, 7)) < 4 ? 1 : 0);
+          fn({ from: y + '-04-01', to: (y + 1) + '-03-31' });
+        }
+      };
+    });
+  }
+
+  // ------------------------------------------------------------
+  // 小道具
+  // ------------------------------------------------------------
+  /**
+   * Apps Script の操作を呼びます。1つ目の引数には必ずログイン情報を付けます。
+   * text/plain で送るのは、ブラウザの事前確認（CORS preflight）を避けるためです。
+   */
+  function api(name, args, ok, quiet) {
+    if (!quiet) el('busy').hidden = false;
+    fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ api: name, args: [{ idToken: st.token }].concat(args) }),
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      el('busy').hidden = true;
+      if (res.ok) return ok(res);
+      if (res.code === 'auth') return showSignIn(res.message);
+      if (res.code === 'denied') {
+        google.accounts.id.disableAutoSelect();
+        return showSignIn(res.message);
+      }
+      toast(res.message || 'エラーが発生しました', true);
+    }).catch(function () {
+      el('busy').hidden = true;
+      toast('通信できませんでした。もう一度お試しください。', true);
+    });
+  }
+
+  function loadMembers(fn, force) {
+    if (st.members && !force) return fn();
+    api('apiMemberList', [], function (res) { st.members = res.members; fn(); }, true);
+  }
+
+  var toastTimer;
+  function toast(msg, ng) {
+    var t = el('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (ng ? ' ng' : '');
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, ng ? 6000 : 2500);
+  }
+
+  function gate(title, msg) {
+    el('app').hidden = true;
+    el('gate').hidden = false;
+    el('gateMsg').innerHTML = '<b>' + esc(title) + '</b><br>' + esc(msg);
+  }
+
+  function el(id) { return document.getElementById(id); }
+  function pad(n) { return ('0' + n).slice(-2); }
+  function opt(v, label, cur) { return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(label) + '</option>'; }
+  function stat(label, n) { return '<div class="stat"><small>' + esc(label) + '</small><b>' + esc(n) + '</b></div>'; }
+  function cmpKana(a, b) { return String(a.kana || a.name).localeCompare(String(b.kana || b.name), 'ja'); }
+  function minStr(a, b) { return a < b ? a : b; }
+  function maxStr(a, b) { return a > b ? a : b; }
+  function shiftYm(ym, n) {
+    var d = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + n, 1);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1);
+  }
+  function monthEnd(ym) { return ym + '-' + pad(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0).getDate()); }
+  function dateLabel(k) {
+    var d = new Date(k.replace(/-/g, '/'));
+    return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + '(' + WEEK[d.getDay()] + ')';
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>
