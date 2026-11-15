@@ -694,16 +694,206 @@
     el('view').innerHTML = '<div class="card"><div class="row">' +
       '<div class="subtabs">' +
       '<button type="button" class="btn sm" data-fmode="month" aria-pressed="' + (st.feeMode === 'month') + '">月別</button>' +
-      '<button type="button" class="btn sm" data-fmode="year" aria-pressed="' + (st.feeMode === 'year') + '">年間一覧</button></div>' +
+      '<button type="button" class="btn sm" data-fmode="year" aria-pressed="' + (st.feeMode === 'year') + '">年間一覧</button>' +
+      '<button type="button" class="btn sm" data-fmode="event" aria-pressed="' + (st.feeMode === 'event') + '">イベント</button></div>' +
       '<span class="grow"></span>' +
       '<label class="row muted"><input type="checkbox" id="fUnpaid"' + (st.feeUnpaidOnly ? ' checked' : '') + '> 未納のみ表示</label>' +
       '</div></div><div id="fbody" class="muted">読み込み中…</div>' +
-      '<div class="card"><details id="fset"><summary>月額の設定</summary><div id="fsetBody" style="margin-top:10px"></div></details></div>';
+      (st.feeMode === 'event' ? '' :
+        '<div class="card"><details id="fset"><summary>月額の設定</summary><div id="fsetBody" style="margin-top:10px"></div></details></div>');
     Array.prototype.forEach.call(document.querySelectorAll('[data-fmode]'), function (b) {
-      b.onclick = function () { st.feeMode = b.getAttribute('data-fmode'); renderFee(); };
+      b.onclick = function () { st.feeMode = b.getAttribute('data-fmode'); st.evId = null; renderFee(); };
     });
-    el('fUnpaid').onchange = function () { st.feeUnpaidOnly = this.checked; drawFee(); };
-    loadFee(st.feeFy);
+    el('fUnpaid').onchange = function () {
+      st.feeUnpaidOnly = this.checked;
+      if (st.feeMode === 'event') { if (st.evDetail) drawEventDetail(); } else drawFee();
+    };
+    if (st.feeMode === 'event') { if (st.evId) openEvent(st.evId); else loadEvents(); }
+    else loadFee(st.feeFy);
+  }
+
+  // ------------------------------------------------------------
+  // 徴収管理：イベント（申込フォームと参加費）
+  // ------------------------------------------------------------
+  function loadEvents() {
+    api('apiEventList', [], function (res) {
+      st.ev = res;
+      if (st.view === 'fee' && st.feeMode === 'event' && !st.evId) drawEventList();
+    }, true);
+  }
+
+  function drawEventList() {
+    var r = st.ev;
+    el('fbody').className = '';
+    el('fbody').innerHTML = '<div class="card"><div class="row" style="margin-bottom:10px"><h2 class="grow" style="margin:0">イベント</h2>' +
+      '<button type="button" class="btn pri" id="evNew">＋イベントを登録</button></div>' +
+      (r.formUrl
+        ? '<div class="muted" style="margin-bottom:10px">申込フォーム（会員以外の方向け）：<a href="' + esc(r.formUrl) + '" target="_blank" rel="noopener">' + esc(r.formUrl) + '</a> ' +
+          '<button type="button" class="btn sm" id="evCopy">URLをコピー</button><br>会員は LINE で「イベント」と送ると、本人の確認コード入りのフォームが届きます。</div>'
+        : '<div class="banner" style="background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 12px;margin-bottom:10px">' +
+          '申込フォームがまだありません。スプレッドシートのメニュー「出欠管理 → イベント申込フォームを作る」を実行してください。</div>') +
+      (r.events.length ? '<div class="tbl-wrap"><table><thead><tr><th>開催日</th><th>イベント名</th><th>状態</th><th class="num">参加費</th>' +
+        '<th class="num">申込</th><th class="num">入金</th><th class="num">未納</th></tr></thead><tbody>' +
+        r.events.map(function (e) {
+          var stTag = e.open ? '<span class="tag ok">受付中</span>' : '<span class="tag">' + esc(e.state === '受付中' ? '締切' : e.state) + '</span>';
+          return '<tr class="click" data-ev="' + esc(e.id) + '"><td>' + esc(e.date) + '</td><td>' + esc(e.name) + '</td><td>' + stTag + '</td>' +
+            '<td class="num">' + (e.fee == null ? '<span class="muted">未設定</span>' : yen(e.fee)) + '</td><td class="num">' + e.n + '人</td>' +
+            '<td class="num">' + e.paid + '人 ' + yen(e.paidSum) + '</td>' +
+            '<td class="num">' + (e.unpaid ? '<b style="color:var(--ng)">' + e.unpaid + '人 ' + yen(e.unpaidSum) + '</b>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>'
+        : '<div class="muted">まだイベントがありません。「＋イベントを登録」から登録してください。</div>') + '</div>';
+
+    el('evNew').onclick = function () { eventDialog(null); };
+    if (el('evCopy')) el('evCopy').onclick = function () {
+      navigator.clipboard.writeText(r.formUrl).then(function () { toast('URLをコピーしました'); });
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ev]'), function (tr) {
+      tr.onclick = function () { openEvent(tr.getAttribute('data-ev')); };
+    });
+  }
+
+  /** イベントの登録・編集。ev が null なら新規。 */
+  function eventDialog(ev) {
+    var e = ev || { name: '', date: '', fee: '', feeOther: '', deadline: '', state: '受付中', note: '' };
+    var states = (st.ev && st.ev.states) || ['受付中', '締切', '終了', '中止'];
+    showModal('<h2>' + (ev ? 'イベントを直す' : 'イベントを登録') + '</h2><form id="evform" class="form">' +
+      '<label class="wide">イベント名<input type="text" name="name" value="' + esc(e.name) + '" placeholder="例：夏季合宿2026"></label>' +
+      '<label>開催日<input type="date" name="date" value="' + esc(e.date) + '"></label>' +
+      '<label>申込締切（空欄なら締切なし）<input type="date" name="deadline" value="' + esc(e.deadline) + '"></label>' +
+      '<label>参加費（会員）<input type="text" inputmode="numeric" name="fee" value="' + (e.fee == null ? '' : e.fee) + '" placeholder="円"></label>' +
+      '<label>参加費（会員以外）<input type="text" inputmode="numeric" name="feeOther" value="' + (e.feeOther == null ? '' : e.feeOther) + '" placeholder="空欄なら会員と同じ"></label>' +
+      '<label>状態<select name="state">' + states.map(function (s) { return opt(s, s, e.state); }).join('') + '</select></label>' +
+      '<label class="wide">備考<textarea name="note">' + esc(e.note) + '</textarea></label></form>' +
+      '<div class="legend">状態が「受付中」で締切前のイベントだけが、申込フォームの選択肢に出ます。</div>' +
+      '<div class="row" style="margin-top:14px"><button type="button" class="btn pri" id="evSave">保存する</button><span class="grow"></span>' +
+      '<button type="button" class="btn" data-close>閉じる</button></div>');
+    el('evSave').onclick = function () {
+      var f = el('evform').elements;
+      var data = { id: ev ? ev.id : '', name: f.name.value, date: f.date.value, deadline: f.deadline.value,
+        fee: f.fee.value, feeOther: f.feeOther.value, state: f.state.value, note: f.note.value };
+      api('apiEventSave', [data], function (res) {
+        hideModal();
+        toast('保存しました');
+        if (ev) openEvent(res.id); else loadEvents();
+      });
+    };
+  }
+
+  function openEvent(id) {
+    st.evId = id;
+    api('apiEventDetail', [id], function (res) {
+      st.evDetail = res;
+      if (st.view === 'fee' && st.feeMode === 'event' && st.evId === id) drawEventDetail();
+    });
+  }
+
+  function drawEventDetail() {
+    var d = st.evDetail, e = d.event;
+    var live = d.entries.filter(function (x) { return x.state !== '取消'; });
+    var unpaidOf = function (x) { return !x.pay && x.fee !== 0 && x.payState !== '不要'; };
+    var paid = live.filter(function (x) { return x.pay && x.pay.state === '入金済'; });
+    var unpaid = live.filter(unpaidOf);
+    var sum = function (list, f) { return list.reduce(function (a, x) { return a + (Number(f(x)) || 0); }, 0); };
+    var rows = d.entries.filter(function (x) { return !st.feeUnpaidOnly || (x.state !== '取消' && unpaidOf(x)); })
+      .sort(function (a, b) { return (a.state === '取消') - (b.state === '取消') || a.date.localeCompare(b.date); });
+
+    el('fbody').className = '';
+    el('fbody').innerHTML = '<div class="card"><div class="row" style="margin-bottom:8px">' +
+      '<button type="button" class="btn sm" id="evBack">← イベント一覧</button><b class="grow" style="font-size:18px">' + esc(e.name) + '</b>' +
+      '<button type="button" class="btn sm" id="evEdit">直す</button></div>' +
+      '<div class="muted">開催日 ' + esc(e.date) + (e.deadline ? '　締切 ' + esc(e.deadline) : '') + '　状態 ' + esc(e.state) +
+      '　参加費 ' + (e.fee == null ? '未設定' : yen(e.fee)) + (e.feeOther != null && e.feeOther !== e.fee ? '（会員以外 ' + yen(e.feeOther) + '）' : '') + '</div>' +
+      '<div class="stats" style="margin:12px 0">' + stat('申込', live.length + '人') + stat('入金', paid.length + '人') +
+      stat('入金額', yen(sum(paid, function (x) { return x.pay.amount; }))) + stat('未納', unpaid.length + '人') +
+      stat('未納額', yen(sum(unpaid, function (x) { return x.fee; }))) + '</div>' +
+      '<div class="row" style="margin-bottom:8px"><button type="button" class="btn sm" id="evAdd">＋申込を追加（窓口・電話）</button>' +
+      '<button type="button" class="btn sm" id="evBulk">チェックした人をまとめて入金OK</button></div>' +
+      (rows.length ? '<div class="tbl-wrap"><table><thead><tr><th></th><th>氏名</th><th>区分</th><th>所属・連絡先</th><th>申込日</th><th class="num">参加費</th><th>状態</th><th></th></tr></thead><tbody>' +
+        rows.map(function (x) {
+          var k = d.entries.indexOf(x);
+          var canceled = x.state === '取消';
+          var state = canceled ? '<span class="tag">申込取消</span>'
+            : x.pay && x.pay.state === '入金済' ? '<span class="tag ok">✓ ' + esc(x.pay.date.slice(5).replace('-', '/')) + ' ' + esc(x.pay.method) + '</span>'
+            : x.pay ? '<span class="tag">' + esc(x.pay.state) + '</span>'
+            : unpaidOf(x) ? '<span class="tag ng">未納</span>' : '<span class="muted">不要</span>';
+          var action = canceled ? ''
+            : x.pay ? '<button type="button" class="btn sm" data-evpay="' + k + '">詳細</button>'
+            : unpaidOf(x) ? '<button type="button" class="btn sm pri" data-evpay="' + k + '">入金OK</button> <button type="button" class="btn sm" data-evdrop="' + k + '">申込取消</button>'
+            : '<button type="button" class="btn sm" data-evdrop="' + k + '">申込取消</button>';
+          var who = x.memberId ? '<a href="#" data-member="' + esc(x.memberId) + '">' + esc(x.name) + '</a>' : esc(x.name);
+          return '<tr' + (canceled ? ' style="opacity:.5"' : '') + '><td>' + (!canceled && unpaidOf(x) ? '<input type="checkbox" data-evpick="' + k + '">' : '') +
+            '</td><td>' + who + '</td><td>' + esc(x.kind) + '</td><td style="white-space:normal">' + esc([x.org, x.tel].filter(Boolean).join(' ')) +
+            (x.note ? '<div class="muted" style="font-size:12px">' + esc(x.note) + '</div>' : '') + '</td><td>' + esc(x.date) + '</td>' +
+            '<td class="num">' + (x.fee == null ? '<span class="muted">未設定</span>' : yen(x.fee)) + '</td><td>' + state + '</td><td>' + action + '</td></tr>';
+        }).join('') + '</tbody></table></div>'
+        : '<div class="muted">' + (st.feeUnpaidOnly ? '未納の人はいません。' : 'まだ申込がありません。') + '</div>') + '</div>';
+
+    el('evBack').onclick = function () { st.evId = null; st.evDetail = null; loadEvents(); };
+    el('evEdit').onclick = function () { eventDialog(e); };
+    el('evAdd').onclick = addEntryDialog;
+    var pay = function (list) {
+      payDialog(list.map(function (x) {
+        return { entryId: x.id, name: x.name, label: e.name, amount: x.fee, checked: true };
+      }), function (res) { st.evDetail = res; drawEventDetail(); }, function (entries, date, method, note, exempt) {
+        return ['apiEventPay', [e.id, entries, date, method, note, exempt]];
+      });
+    };
+    el('evBulk').onclick = function () {
+      var list = Array.prototype.map.call(document.querySelectorAll('[data-evpick]:checked'), function (cb) {
+        return d.entries[Number(cb.getAttribute('data-evpick'))];
+      });
+      if (!list.length) return toast('入金OKにする人にチェックを付けてください', true);
+      pay(list);
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-evpay]'), function (b) {
+      b.onclick = function () {
+        var x = d.entries[Number(b.getAttribute('data-evpay'))];
+        if (!x.pay) return pay([x]);
+        showModal('<h2>' + esc(x.name) + '　' + esc(e.name) + '</h2><div class="tbl-wrap"><table><tbody>' +
+          [['状態', x.pay.state], ['金額', yen(x.pay.amount)], ['入金日', x.pay.date], ['支払方法', x.pay.method],
+           ['受領者', x.pay.receiver], ['備考', x.pay.note]].map(function (r) {
+            return '<tr><th style="position:static">' + r[0] + '</th><td style="white-space:normal">' + esc(r[1] || '') + '</td></tr>';
+          }).join('') + '</tbody></table></div>' +
+          '<div class="row" style="margin-top:14px"><button type="button" class="btn" id="evPayCancel" style="color:var(--ng)">この入金を取り消す</button>' +
+          '<span class="grow"></span><button type="button" class="btn" data-close>閉じる</button></div>' +
+          '<div class="legend">記録は消えずに「取消」として残り、未納に戻ります。</div>');
+        el('evPayCancel').onclick = function () {
+          if (!confirm('この入金を取り消して、未納に戻します。よろしいですか？')) return;
+          api('apiEventPayCancel', [e.id, x.id], function (res) { hideModal(); toast('取り消しました'); st.evDetail = res; drawEventDetail(); });
+        };
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-evdrop]'), function (b) {
+      b.onclick = function () {
+        var x = d.entries[Number(b.getAttribute('data-evdrop'))];
+        if (!confirm(x.name + ' さんの申込を取り消します。よろしいですか？')) return;
+        api('apiEventEntryCancel', [e.id, x.id], function (res) { toast('申込を取り消しました'); st.evDetail = res; drawEventDetail(); });
+      };
+    });
+  }
+
+  /** 窓口や電話で受けた申込の追加。会員は一覧から選び、会員以外は氏名などを入力します。 */
+  function addEntryDialog() {
+    loadMembers(function () {
+      var kinds = (st.ev && st.ev.kinds) || ['会員', '会員の家族', '他道場', '一般'];
+      var members = st.members.filter(function (m) { return m.state !== '退会'; }).sort(cmpKana);
+      showModal('<h2>申込を追加</h2><form id="eaform" class="form">' +
+        '<label class="wide">会員の場合は選択<select name="memberId"><option value="">（会員以外）</option>' +
+        members.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc(m.name) + '（' + esc(m.id) + '）</option>'; }).join('') + '</select></label>' +
+        '<label>氏名（会員以外）<input type="text" name="name"></label>' +
+        '<label>区分（会員以外）<select name="kind">' + kinds.filter(function (k) { return k !== '会員'; }).map(function (k) { return opt(k, k, '一般'); }).join('') + '</select></label>' +
+        '<label>所属<input type="text" name="org"></label><label>電話番号<input type="text" name="tel"></label>' +
+        '<label class="wide">備考<input type="text" name="note"></label></form>' +
+        '<div class="row" style="margin-top:14px"><button type="button" class="btn pri" id="eaSave">追加する</button><span class="grow"></span>' +
+        '<button type="button" class="btn" data-close>閉じる</button></div>');
+      el('eaSave').onclick = function () {
+        var f = el('eaform').elements;
+        api('apiEventAddEntry', [st.evId, { memberId: f.memberId.value, name: f.name.value, kind: f.kind.value,
+          org: f.org.value, tel: f.tel.value, note: f.note.value }], function (res) {
+          hideModal(); toast('追加しました'); st.evDetail = res; drawEventDetail();
+        });
+      };
+    });
   }
 
   function loadFee(fy) {
@@ -849,14 +1039,17 @@
     bindFeeCells();
   }
 
-  /** 入金の登録画面。items = [{memberId, name, ym, amount, checked}] */
-  function payDialog(items, done) {
+  /**
+   * 入金の登録画面。items = [{name, ym または label, amount, checked, ...}]
+   * submit を渡すと、その関数で送ります（イベントの参加費など）。省略時は月会費として送ります。
+   */
+  function payDialog(items, done, submit) {
     var today = st.boot.today;
     var methods = (st.fee && st.fee.methods) || ['現金', '振込', 'QR', '口座振替'];
-    showModal('<h2>入金の登録</h2><div class="tbl-wrap"><table><thead><tr><th></th><th>氏名</th><th>月</th><th class="num">金額</th></tr></thead><tbody>' +
+    showModal('<h2>入金の登録</h2><div class="tbl-wrap"><table><thead><tr><th></th><th>氏名</th><th>内容</th><th class="num">金額</th></tr></thead><tbody>' +
       items.map(function (it, k) {
         return '<tr><td><input type="checkbox" data-pi="' + k + '"' + (it.checked ? ' checked' : '') + '></td><td>' + esc(it.name) + '</td>' +
-          '<td>' + Number(it.ym.slice(5)) + '月</td><td class="num"><input type="text" inputmode="numeric" data-pa="' + k + '" value="' +
+          '<td>' + esc(it.label || Number(it.ym.slice(5)) + '月') + '</td><td class="num"><input type="text" inputmode="numeric" data-pa="' + k + '" value="' +
           (it.amount == null ? '' : it.amount) + '" placeholder="金額" style="width:90px;text-align:right"></td></tr>';
       }).join('') + '</tbody></table></div>' +
       '<form id="pform" class="form" style="margin-top:12px">' +
@@ -872,7 +1065,7 @@
       items.forEach(function (it, k) {
         if (!document.querySelector('[data-pi="' + k + '"]').checked) return;
         var a = document.querySelector('[data-pa="' + k + '"]').value.replace(/[,，円\s]/g, '');
-        out.push({ memberId: it.memberId, ym: it.ym, amount: a });
+        out.push({ memberId: it.memberId, ym: it.ym, entryId: it.entryId, amount: a });
       });
       if (!out.length) { toast('登録する月にチェックを付けてください', true); return null; }
       if (needAmount && out.some(function (x) { return !(Number(x.amount) > 0); })) { toast('金額を入力してください', true); return null; }
@@ -880,11 +1073,13 @@
     }
     function send(entries, exempt) {
       var f = el('pform').elements;
-      api('apiFeePay', [entries, f.date.value, f.method.value, f.note.value, exempt], function (res) {
+      var call = submit ? submit(entries, f.date.value, f.method.value, f.note.value, exempt)
+        : ['apiFeePay', [entries, f.date.value, f.method.value, f.note.value, exempt]];
+      api(call[0], call[1], function (res) {
         hideModal();
         toast((exempt ? '免除にしました' : '入金を登録しました') + '（' + res.done + '件）' +
-          (res.skipped.length ? '　登録済みのため飛ばした月：' + res.skipped.join('、') : ''), !!res.skipped.length);
-        done();
+          (res.skipped.length ? '　登録済みのため飛ばしたもの：' + res.skipped.join('、') : ''), !!res.skipped.length);
+        done(res);
       });
     }
     el('pOk').onclick = function () { var e = picked(true); if (e) send(e, false); };
