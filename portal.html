@@ -247,6 +247,7 @@
     { id: 'home',    label: 'ホーム' },
     { id: 'overall', label: '全体管理',     need: 'attendance' },
     { id: 'members', label: '会員個人管理', need: 'member' },
+    { id: 'changes', label: '変更申請',     need: 'memberEdit' },
     { id: 'fee',     label: '徴収管理',     need: 'fee',   soon: true },
     { id: 'sales',   label: '物販管理',     need: 'sales', soon: true },
     { id: 'users',   label: '利用者管理',   need: 'users' },
@@ -261,7 +262,8 @@
       return '<button type="button" data-go="' + v.id + '"' +
         (v.id === view || (view === 'member' && v.id === 'members') ? ' aria-current="page"' : '') + '>' + v.label + '</button>';
     }).join('');
-    ({ home: renderHome, overall: renderOverall, members: renderMembers, member: renderMember, users: renderUsers }[view])();
+    ({ home: renderHome, overall: renderOverall, members: renderMembers, member: renderMember,
+       changes: renderChanges, users: renderUsers }[view])();
     window.scrollTo(0, 0);
   }
 
@@ -276,6 +278,7 @@
   var ENTRY_NOTE = {
     overall: '在籍数・期間ごとの出席日数',
     members: '会員の登録・編集、進級、出欠カレンダー',
+    changes: '会員がフォームで送った登録内容の変更を確認して反映',
     fee:     '会費・振込・現金の入金登録（準備中）',
     sales:   '物販の申込・受け渡し（準備中）',
     users:   'ポータルを使う人と役割の登録',
@@ -601,6 +604,64 @@
         return '<tr><td>' + ym.slice(0, 4) + '年' + Number(ym.slice(5)) + '月</td><td class="num">' + days.filter(inM).length +
           '</td><td class="num">' + st.att.sessionDays.filter(inM).length + '</td></tr>';
       }).join('') + '</tbody></table></div>' : '';
+  }
+
+  // ------------------------------------------------------------
+  // 変更申請：今の台帳と申請の内容を並べ、選んだ項目を書き換える
+  // ------------------------------------------------------------
+  function renderChanges() {
+    el('view').innerHTML = '<div class="card"><h2>変更申請</h2>' +
+      '<div class="muted">会員が LINE から登録フォームを送り直すと、ここに並びます。' +
+      '内容が変わった項目だけを表示しています。反映する項目にチェックを付けて「反映する」を押してください。</div></div>' +
+      '<div id="clist" class="muted">読み込み中…</div>';
+    api('apiChangeRequests', [], function (res) { if (st.view === 'changes') drawChanges(res.requests); }, true);
+  }
+
+  function drawChanges(list) {
+    if (!list.length) {
+      el('clist').innerHTML = '<div class="card muted">未処理の変更申請はありません。</div>';
+      return;
+    }
+    el('clist').className = '';
+    el('clist').innerHTML = list.map(function (r) {
+      return '<div class="card" data-creq="' + r.row + '"><div class="row" style="margin-bottom:8px">' +
+        '<b class="grow">' + esc(r.name) + ' <span class="muted">' + esc(r.memberId) + '</span></b>' +
+        '<span class="muted">送信 ' + esc(r.at) + '</span></div>' +
+        (r.changes.length ? '<div class="tbl-wrap"><table><thead><tr><th>反映</th><th>項目</th><th>今の内容</th><th>申請の内容</th></tr></thead><tbody>' +
+          r.changes.map(function (c) {
+            return '<tr><td><input type="checkbox" checked value="' + esc(c.field) + '" aria-label="' + esc(c.field) + 'を反映"></td>' +
+              '<td>' + esc(c.field) + '</td><td style="white-space:normal;color:var(--sub)">' + (esc(c.before) || '（空欄）') +
+              '</td><td style="white-space:normal"><b>' + esc(c.after) + '</b></td></tr>';
+          }).join('') + '</tbody></table></div>'
+          : '<div class="muted">今の登録内容と違う項目はありません。</div>') +
+        '<div class="row" style="margin-top:10px">' +
+        (r.changes.length ? '<button type="button" class="btn pri" data-capply="' + r.row + '">反映する</button>' : '') +
+        '<button type="button" class="btn" data-creject="' + r.row + '">' + (r.changes.length ? '反映しない' : '処理済みにする') + '</button>' +
+        '</div></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-capply]'), function (b) {
+      b.onclick = function () {
+        var row = b.getAttribute('data-capply');
+        var box = document.querySelector('[data-creq="' + row + '"]');
+        var fields = Array.prototype.map.call(box.querySelectorAll('input[type=checkbox]:checked'), function (c) { return c.value; });
+        if (!fields.length) return toast('反映する項目にチェックを付けてください', true);
+        api('apiChangeApply', [Number(row), fields], function (res) {
+          st.members = null;
+          toast('台帳に反映しました');
+          drawChanges(res.requests);
+        });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-creject]'), function (b) {
+      b.onclick = function () {
+        if (!confirm('この申請は台帳に反映せずに、処理済みにします。よろしいですか？')) return;
+        api('apiChangeApply', [Number(b.getAttribute('data-creject')), []], function (res) {
+          toast('処理済みにしました');
+          drawChanges(res.requests);
+        });
+      };
+    });
   }
 
   // ------------------------------------------------------------
