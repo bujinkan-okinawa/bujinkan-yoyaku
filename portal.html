@@ -124,6 +124,21 @@
   .split{display:grid;grid-template-columns:minmax(0,460px) minmax(0,1fr);gap:16px;align-items:start}
   @media (max-width:760px){.split{grid-template-columns:minmax(0,1fr)}}
 
+  /* 徴収管理：会員×月の表のマス */
+  .fc{width:34px;height:28px;border-radius:6px;border:1px solid transparent;background:transparent;font-size:12px;
+      cursor:pointer;font-weight:700;padding:0}
+  .fc.paid{background:var(--ok-soft);color:var(--ok)}
+  .fc.exempt{background:var(--navy-soft);color:var(--navy)}
+  .fc.unpaid{background:var(--ng-soft);color:var(--ng);border-color:var(--ng)}
+  .fc.rest,.fc.free{color:var(--muted);cursor:default}
+  .fc.none{cursor:default}
+  .fc.future{color:var(--muted);border:1px dashed var(--line)}
+  td.fcell{padding:3px 4px;text-align:center}
+  tr.total td{background:var(--bg);font-size:12px;color:var(--sub)}
+  .modal{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:center;justify-content:center;z-index:45;padding:16px}
+  .modal .card{width:100%;max-width:520px;max-height:90vh;overflow:auto}
+  details summary{cursor:pointer;font-weight:700}
+
   .gate{max-width:460px;margin:60px auto;text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center;padding:0 16px}
   .gate b{font-size:17px}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);
@@ -154,6 +169,7 @@
   <main class="wrap" id="view"></main>
 </div>
 
+<div id="modal" class="modal" hidden></div>
 <div id="busy" class="busy" hidden>処理中…</div>
 <div id="toast" class="toast" hidden role="status"></div>
 
@@ -248,7 +264,7 @@
     { id: 'overall', label: '全体管理',     need: 'attendance' },
     { id: 'members', label: '会員個人管理', need: 'member' },
     { id: 'changes', label: '変更申請',     need: 'memberEdit' },
-    { id: 'fee',     label: '徴収管理',     need: 'fee',   soon: true },
+    { id: 'fee',     label: '徴収管理',     need: 'fee' },
     { id: 'sales',   label: '物販管理',     need: 'sales', soon: true },
     { id: 'users',   label: '利用者管理',   need: 'users' },
   ];
@@ -263,7 +279,7 @@
         (v.id === view || (view === 'member' && v.id === 'members') ? ' aria-current="page"' : '') + '>' + v.label + '</button>';
     }).join('');
     ({ home: renderHome, overall: renderOverall, members: renderMembers, member: renderMember,
-       changes: renderChanges, users: renderUsers }[view])();
+       changes: renderChanges, fee: renderFee, users: renderUsers }[view])();
     window.scrollTo(0, 0);
   }
 
@@ -279,7 +295,7 @@
     overall: '在籍数・期間ごとの出席日数',
     members: '会員の登録・編集、進級、出欠カレンダー',
     changes: '会員がフォームで送った登録内容の変更を確認して反映',
-    fee:     '会費・振込・現金の入金登録（準備中）',
+    fee:     '月会費の入金登録と未納の確認（年間一覧・月別）',
     sales:   '物販の申込・受け渡し（準備中）',
     users:   'ポータルを使う人と役割の登録',
   };
@@ -418,7 +434,9 @@
 
   document.addEventListener('click', function (ev) {
     var t = ev.target.closest('[data-member]');
-    if (t && can('member')) openMember(t.getAttribute('data-member'));
+    if (!t) return;
+    ev.preventDefault();   // 氏名のリンク（href="#"）で画面の先頭へ飛ばないように
+    if (can('member')) openMember(t.getAttribute('data-member'));
   });
 
   function openMember(id) {
@@ -442,6 +460,7 @@
     var tabs = [['info', '基本情報']];
     if (m.id && can('exam')) tabs.push(['exam', '進級']);
     if (m.id && can('attendance')) tabs.push(['att', '出欠']);
+    if (m.id && can('fee')) tabs.push(['fee', '会費']);
     el('view').innerHTML = '<div class="row"><button type="button" class="btn sm" data-go="members">← 一覧へ</button>' +
       '<b class="grow" style="font-size:18px">' + (m.id ? esc(name) + ' <span class="muted">' + esc(m.id) + '　' + esc(fieldValue('現在の級・段')) + '</span>' : '新規登録') + '</b></div>' +
       '<div class="subtabs">' + tabs.map(function (t) {
@@ -450,7 +469,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-mtab]'), function (b) {
       b.onclick = function () { st.memberTab = b.getAttribute('data-mtab'); renderMember(); };
     });
-    ({ info: drawInfo, exam: drawExams, att: drawAttendance }[st.memberTab])();
+    ({ info: drawInfo, exam: drawExams, att: drawAttendance, fee: drawMemberFee }[st.memberTab])();
   }
 
   function fieldValue(name) {
@@ -662,6 +681,292 @@
         });
       };
     });
+  }
+
+  // ------------------------------------------------------------
+  // 徴収管理：年間一覧（会員×月）と月別の一覧
+  // ------------------------------------------------------------
+  var FEE_MARK = { paid: '✓', exempt: '免', unpaid: '未', rest: '休', free: '－', none: '', future: '' };
+  var FEE_LABEL = { rest: '休会', free: '無料', none: '対象外', future: '' };
+
+  function renderFee() {
+    st.feeMode = st.feeMode || 'month';
+    el('view').innerHTML = '<div class="card"><div class="row">' +
+      '<div class="subtabs">' +
+      '<button type="button" class="btn sm" data-fmode="month" aria-pressed="' + (st.feeMode === 'month') + '">月別</button>' +
+      '<button type="button" class="btn sm" data-fmode="year" aria-pressed="' + (st.feeMode === 'year') + '">年間一覧</button></div>' +
+      '<span class="grow"></span>' +
+      '<label class="row muted"><input type="checkbox" id="fUnpaid"' + (st.feeUnpaidOnly ? ' checked' : '') + '> 未納のみ表示</label>' +
+      '</div></div><div id="fbody" class="muted">読み込み中…</div>' +
+      '<div class="card"><details id="fset"><summary>月額の設定</summary><div id="fsetBody" style="margin-top:10px"></div></details></div>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fmode]'), function (b) {
+      b.onclick = function () { st.feeMode = b.getAttribute('data-fmode'); renderFee(); };
+    });
+    el('fUnpaid').onchange = function () { st.feeUnpaidOnly = this.checked; drawFee(); };
+    loadFee(st.feeFy);
+  }
+
+  function loadFee(fy) {
+    api('apiFeeYear', [fy || ''], function (res) {
+      st.fee = res;
+      st.feeFy = res.fy;
+      if (!st.feeYm || res.months.indexOf(st.feeYm) === -1) {
+        st.feeYm = res.months.indexOf(res.today.slice(0, 7)) !== -1 ? res.today.slice(0, 7) : res.months[0];
+      }
+      if (st.view === 'fee') { drawFee(); drawFeeSettings(); }
+    }, true);
+  }
+
+  function drawFee() {
+    if (!st.fee) return;
+    el('fbody').className = '';
+    if (st.feeMode === 'year') drawFeeYear(); else drawFeeMonth();
+  }
+
+  /** 会員の未納の月数と金額（今月まで）。 */
+  function unpaidOf(m) {
+    var n = m.cells.filter(function (c) { return c.state === 'unpaid'; }).length;
+    return { n: n, amount: m.fee == null ? null : n * m.fee };
+  }
+
+  function drawFeeYear() {
+    var f = st.fee;
+    var list = f.members.filter(function (m) { return !st.feeUnpaidOnly || unpaidOf(m).n; }).sort(cmpKana);
+    var total = 0, unknown = 0;
+    f.members.forEach(function (m) { var u = unpaidOf(m); if (u.amount == null) unknown += u.n; else total += u.amount; });
+
+    el('fbody').innerHTML = '<div class="card"><div class="row" style="margin-bottom:10px">' +
+      '<button type="button" class="nav" data-fy="-1" aria-label="前の年度">‹</button><b>' + f.fy + '年度</b>' +
+      '<button type="button" class="nav" data-fy="1" aria-label="次の年度">›</button><span class="grow"></span>' +
+      '<span class="muted">未納合計 <b style="color:var(--ng)">' + yen(total) + '</b>' + (unknown ? '（ほか金額未設定 ' + unknown + '件）' : '') + '</span></div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>氏名</th><th>区分</th>' +
+      f.months.map(function (ym) { return '<th class="num" style="text-align:center">' + Number(ym.slice(5)) + '月</th>'; }).join('') +
+      '<th class="num">未納</th></tr></thead><tbody>' +
+      list.map(function (m) {
+        var u = unpaidOf(m);
+        return '<tr><td><a href="#" data-member="' + esc(m.id) + '">' + esc(m.name) + '</a>' +
+          (m.state !== '在籍' ? ' <span class="tag">' + esc(m.state) + '</span>' : '') + '</td><td>' + esc(m.kubun) + '</td>' +
+          m.cells.map(function (c, i) { return '<td class="fcell">' + feeCell(m, i) + '</td>'; }).join('') +
+          '<td class="num">' + (u.n ? '<b style="color:var(--ng)">' + u.n + 'か月 ' + (u.amount == null ? '' : yen(u.amount)) + '</b>' : '') + '</td></tr>';
+      }).join('') +
+      '<tr class="total"><td colspan="2">入金 / 未納（人）</td>' + f.months.map(function (ym, i) {
+        var paid = 0, un = 0;
+        f.members.forEach(function (m) { if (m.cells[i].state === 'paid') paid++; if (m.cells[i].state === 'unpaid') un++; });
+        return '<td class="num" style="text-align:center">' + (paid || un ? paid + '/' + (un ? '<b style="color:var(--ng)">' + un + '</b>' : 0) : '') + '</td>';
+      }).join('') + '<td></td></tr>' +
+      '</tbody></table></div>' +
+      '<div class="legend"><span class="fc paid" style="display:inline-block;line-height:28px;text-align:center">✓</span>入金済 ' +
+      '<span class="fc unpaid" style="display:inline-block;line-height:26px;text-align:center">未</span>未納（押すと入金登録） ' +
+      '<span class="fc exempt" style="display:inline-block;line-height:28px;text-align:center">免</span>免除　休＝休会　－＝無料　点線＝先の月（前払いの登録ができます）</div></div>';
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fy]'), function (b) {
+      b.onclick = function () { loadFee(st.feeFy + Number(b.getAttribute('data-fy'))); };
+    });
+    bindFeeCells();
+  }
+
+  function feeCell(m, i) {
+    var c = m.cells[i];
+    var title = c.state === 'paid' ? c.date + ' ' + c.method + ' ' + yen(c.amount) : (FEE_LABEL[c.state] || '');
+    return '<button type="button" class="fc ' + c.state + '" data-fcell="' + esc(m.id) + ':' + i + '" title="' + esc(title) + '">' +
+      FEE_MARK[c.state] + '</button>';
+  }
+
+  function bindFeeCells() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fcell]'), function (b) {
+      b.onclick = function () {
+        var p = b.getAttribute('data-fcell').split(':');
+        var m = st.fee.members.filter(function (x) { return x.id === p[0]; })[0];
+        var i = Number(p[1]);
+        var c = m.cells[i];
+        if (c.state === 'paid' || c.state === 'exempt') return feeDetail(m, st.fee.months[i], c);
+        if (c.state !== 'unpaid' && c.state !== 'future') return;
+        // その会員の未納・先の月を並べ、押した月だけチェックを付けます
+        var items = [];
+        m.cells.forEach(function (x, j) {
+          if (x.state === 'unpaid' || x.state === 'future') {
+            items.push({ memberId: m.id, name: m.name, ym: st.fee.months[j], amount: m.fee, checked: j === i });
+          }
+        });
+        payDialog(items, function () { loadFee(st.feeFy); });
+      };
+    });
+  }
+
+  function drawFeeMonth() {
+    var f = st.fee;
+    var i = f.months.indexOf(st.feeYm);
+    var rows = f.members.map(function (m) { return { m: m, c: m.cells[i] }; })
+      .filter(function (r) { return r.c.state !== 'none'; })
+      .filter(function (r) { return !st.feeUnpaidOnly || r.c.state === 'unpaid'; })
+      .sort(function (a, b) { return cmpKana(a.m, b.m); });
+    var paid = 0, paidSum = 0, un = 0, unSum = 0;
+    f.members.forEach(function (m) {
+      var c = m.cells[i];
+      if (c.state === 'paid') { paid++; paidSum += Number(c.amount) || 0; }
+      if (c.state === 'unpaid') { un++; unSum += m.fee || 0; }
+    });
+
+    el('fbody').innerHTML = '<div class="card"><div class="row" style="margin-bottom:10px">' +
+      '<button type="button" class="nav" data-fm="-1" aria-label="前の月">‹</button><b style="font-size:18px">' +
+      st.feeYm.slice(0, 4) + '年' + Number(st.feeYm.slice(5)) + '月</b>' +
+      '<button type="button" class="nav" data-fm="1" aria-label="次の月">›</button></div>' +
+      '<div class="stats" style="margin-bottom:12px">' + stat('入金', paid + '人') + stat('入金額', yen(paidSum)) +
+      stat('未納', un + '人') + stat('未納額', yen(unSum)) + '</div>' +
+      '<div class="row" style="margin-bottom:8px"><button type="button" class="btn sm" id="fBulk">チェックした人をまとめて入金OK</button>' +
+      '<span class="muted">道場で現金を受け取ったときなどに使います</span></div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th></th><th>氏名</th><th>区分</th><th class="num">月額</th><th>状態</th><th></th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        var m = r.m, c = r.c, j = f.members.indexOf(m);
+        var state = c.state === 'paid' ? '<span class="tag ok">✓ ' + esc(c.date.slice(5).replace('-', '/')) + ' ' + esc(c.method) + '</span>'
+          : c.state === 'exempt' ? '<span class="tag">免除</span>'
+          : c.state === 'unpaid' ? '<span class="tag ng">未納</span>'
+          : '<span class="muted">' + esc(FEE_LABEL[c.state] || '') + '</span>';
+        var action = c.state === 'unpaid' || c.state === 'future'
+          ? '<button type="button" class="btn sm pri" data-fcell="' + esc(m.id) + ':' + i + '">入金OK</button>'
+          : (c.state === 'paid' || c.state === 'exempt') ? '<button type="button" class="btn sm" data-fcell="' + esc(m.id) + ':' + i + '">詳細</button>' : '';
+        return '<tr><td>' + (c.state === 'unpaid' || c.state === 'future' ? '<input type="checkbox" data-fpick="' + j + '" aria-label="' + esc(m.name) + 'を選ぶ">' : '') +
+          '</td><td><a href="#" data-member="' + esc(m.id) + '">' + esc(m.name) + '</a></td><td>' + esc(m.kubun) + '</td>' +
+          '<td class="num">' + (m.fee == null ? '<span class="muted">未設定</span>' : yen(m.fee)) + '</td><td>' + state + '</td><td>' + action + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fm]'), function (b) {
+      b.onclick = function () {
+        var next = shiftYm(st.feeYm, Number(b.getAttribute('data-fm')));
+        st.feeYm = next;
+        if (f.months.indexOf(next) === -1) loadFee(st.feeFy + (next < f.months[0] ? -1 : 1));
+        else drawFeeMonth();
+      };
+    });
+    el('fBulk').onclick = function () {
+      var items = Array.prototype.map.call(document.querySelectorAll('[data-fpick]:checked'), function (cb) {
+        var m = f.members[Number(cb.getAttribute('data-fpick'))];
+        return { memberId: m.id, name: m.name, ym: st.feeYm, amount: m.fee, checked: true };
+      });
+      if (!items.length) return toast('入金OKにする人にチェックを付けてください', true);
+      payDialog(items, function () { loadFee(st.feeFy); });
+    };
+    bindFeeCells();
+  }
+
+  /** 入金の登録画面。items = [{memberId, name, ym, amount, checked}] */
+  function payDialog(items, done) {
+    var today = st.boot.today;
+    var methods = (st.fee && st.fee.methods) || ['現金', '振込', 'QR', '口座振替'];
+    showModal('<h2>入金の登録</h2><div class="tbl-wrap"><table><thead><tr><th></th><th>氏名</th><th>月</th><th class="num">金額</th></tr></thead><tbody>' +
+      items.map(function (it, k) {
+        return '<tr><td><input type="checkbox" data-pi="' + k + '"' + (it.checked ? ' checked' : '') + '></td><td>' + esc(it.name) + '</td>' +
+          '<td>' + Number(it.ym.slice(5)) + '月</td><td class="num"><input type="text" inputmode="numeric" data-pa="' + k + '" value="' +
+          (it.amount == null ? '' : it.amount) + '" placeholder="金額" style="width:90px;text-align:right"></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<form id="pform" class="form" style="margin-top:12px">' +
+      '<label>入金日<input type="date" name="date" value="' + today + '"></label>' +
+      '<label>支払方法<select name="method">' + methods.map(function (x) { return opt(x, x, '現金'); }).join('') + '</select></label>' +
+      '<label class="wide">備考<input type="text" name="note"></label></form>' +
+      '<div class="row" style="margin-top:14px"><button type="button" class="btn pri" id="pOk">入金OK</button>' +
+      '<button type="button" class="btn" id="pExempt">免除にする</button><span class="grow"></span>' +
+      '<button type="button" class="btn" data-close>閉じる</button></div>');
+
+    function picked(needAmount) {
+      var out = [];
+      items.forEach(function (it, k) {
+        if (!document.querySelector('[data-pi="' + k + '"]').checked) return;
+        var a = document.querySelector('[data-pa="' + k + '"]').value.replace(/[,，円\s]/g, '');
+        out.push({ memberId: it.memberId, ym: it.ym, amount: a });
+      });
+      if (!out.length) { toast('登録する月にチェックを付けてください', true); return null; }
+      if (needAmount && out.some(function (x) { return !(Number(x.amount) > 0); })) { toast('金額を入力してください', true); return null; }
+      return out;
+    }
+    function send(entries, exempt) {
+      var f = el('pform').elements;
+      api('apiFeePay', [entries, f.date.value, f.method.value, f.note.value, exempt], function (res) {
+        hideModal();
+        toast((exempt ? '免除にしました' : '入金を登録しました') + '（' + res.done + '件）' +
+          (res.skipped.length ? '　登録済みのため飛ばした月：' + res.skipped.join('、') : ''), !!res.skipped.length);
+        done();
+      });
+    }
+    el('pOk').onclick = function () { var e = picked(true); if (e) send(e, false); };
+    el('pExempt').onclick = function () {
+      var e = picked(false);
+      if (e && confirm('選んだ月を「免除」（会費をもらわない）にします。よろしいですか？')) send(e, true);
+    };
+  }
+
+  /** 入金済・免除のマスを押したとき：内容の表示と取り消し。 */
+  function feeDetail(m, ym, c) {
+    showModal('<h2>' + esc(m.name) + '　' + ym.slice(0, 4) + '年' + Number(ym.slice(5)) + '月分</h2>' +
+      '<div class="tbl-wrap"><table><tbody>' +
+      [['状態', c.state === 'paid' ? '入金済' : '免除'], ['金額', yen(c.amount)], ['入金日', c.date], ['支払方法', c.method],
+       ['受領者', c.receiver], ['備考', c.note]].map(function (r) {
+        return '<tr><th style="position:static">' + r[0] + '</th><td style="white-space:normal">' + esc(r[1] || '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="row" style="margin-top:14px"><button type="button" class="btn" id="fCancel" style="color:var(--ng)">この記録を取り消す</button>' +
+      '<span class="grow"></span><button type="button" class="btn" data-close>閉じる</button></div>' +
+      '<div class="legend">間違えて登録したときに使います。記録は消えずに「取消」として残ります。</div>');
+    el('fCancel').onclick = function () {
+      if (!confirm('この記録を取り消して、未納に戻します。よろしいですか？')) return;
+      api('apiFeeCancel', [c.row], function () { hideModal(); toast('取り消しました'); loadFee(st.feeFy); });
+    };
+  }
+
+  function drawFeeSettings() {
+    var f = st.fee;
+    var kubuns = f.kubuns.slice();
+    Object.keys(f.fee).forEach(function (k) { if (kubuns.indexOf(k) === -1) kubuns.push(k); });
+    el('fsetBody').innerHTML = '<form id="fsform" class="form">' + kubuns.map(function (k) {
+      var v = f.fee[k];
+      return '<label>' + esc(k) + '（月額・円）<input type="text" inputmode="numeric" name="' + esc(k) + '" value="' + (v == null ? '' : v) + '" placeholder="未設定"></label>';
+    }).join('') + '</form><div class="row" style="margin-top:10px"><button type="button" class="btn pri" id="fsSave">保存する</button>' +
+      '<span class="muted">空欄にすると「未設定」になり、入金のときに金額を入力します。無料は 0 にします。</span></div>';
+    el('fsSave').onclick = function () {
+      var table = {};
+      kubuns.forEach(function (k) { table[k] = el('fsform').elements[k].value; });
+      api('apiFeeSettingsSave', [table], function () { toast('保存しました'); loadFee(st.feeFy); });
+    };
+  }
+
+  /** 会員個人管理の「会費」タブ：未納の月と履歴。 */
+  function drawMemberFee() {
+    el('mbody').innerHTML = '<div class="card muted">読み込み中…</div>';
+    api('apiFeeHistory', [st.member.id], function (res) {
+      if (st.view !== 'member' || st.memberTab !== 'fee') return;
+      var name = fieldValue('氏名');
+      el('mbody').innerHTML = '<div class="card"><div class="row"><span>会費区分：<b>' + esc(res.kubun || '未設定') + '</b>　月額：<b>' +
+        (res.fee == null ? '未設定' : yen(res.fee)) + '</b></span><span class="grow"></span>' +
+        (res.unpaid.length ? '<button type="button" class="btn pri" id="mfPay">入金を登録</button>' : '') + '</div>' +
+        '<div style="margin-top:10px">今年度の未納：' + (res.unpaid.length
+          ? res.unpaid.map(function (ym) { return '<span class="tag ng">' + Number(ym.slice(5)) + '月</span>'; }).join(' ') + '　<b style="color:var(--ng)">' +
+            (res.fee == null ? res.unpaid.length + 'か月' : yen(res.fee * res.unpaid.length)) + '</b>'
+          : '<span class="tag ok">なし</span>') + '</div></div>' +
+        '<div class="card"><h2>納入の履歴</h2>' + (res.history.length ? '<div class="tbl-wrap"><table><thead><tr><th>対象月</th><th class="num">金額</th><th>入金日</th><th>方法</th><th>状態</th><th>受領者</th><th>備考</th></tr></thead><tbody>' +
+          res.history.map(function (h) {
+            var cls = h.state === '入金済' ? 'ok' : h.state === '未納' ? 'ng' : '';
+            return '<tr><td>' + esc(h.ym.slice(0, 4) + '年' + Number(h.ym.slice(5)) + '月') + '</td><td class="num">' + yen(h.amount) + '</td><td>' + esc(h.date) +
+              '</td><td>' + esc(h.method) + '</td><td><span class="tag ' + cls + '">' + esc(h.state) + '</span></td><td>' + esc(h.receiver) +
+              '</td><td style="white-space:normal">' + esc(h.note) + '</td></tr>';
+          }).join('') + '</tbody></table></div>' : '<span class="muted">記録がありません。</span>') + '</div>';
+      if (el('mfPay')) el('mfPay').onclick = function () {
+        payDialog(res.unpaid.map(function (ym, k) {
+          return { memberId: st.member.id, name: name, ym: ym, amount: res.fee, checked: k === 0 };
+        }), drawMemberFee);
+      };
+    }, true);
+  }
+
+  function showModal(html) {
+    el('modal').innerHTML = '<div class="card" role="dialog" aria-modal="true">' + html + '</div>';
+    el('modal').hidden = false;
+    Array.prototype.forEach.call(el('modal').querySelectorAll('[data-close]'), function (b) { b.onclick = hideModal; });
+  }
+  function hideModal() { el('modal').hidden = true; el('modal').innerHTML = ''; }
+  el('modal').addEventListener('click', function (ev) { if (ev.target === el('modal')) hideModal(); });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && !el('modal').hidden) hideModal(); });
+
+  function yen(n) {
+    if (n === '' || n == null || isNaN(Number(n))) return '';
+    return Number(n).toLocaleString('ja-JP') + '円';
   }
 
   // ------------------------------------------------------------
