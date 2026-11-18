@@ -263,6 +263,7 @@
     { id: 'home',    label: 'ホーム' },
     { id: 'overall', label: '全体管理',     need: 'attendance' },
     { id: 'members', label: '会員個人管理', need: 'member' },
+    { id: 'apps',    label: '入会申込',     need: 'memberEdit' },
     { id: 'changes', label: '変更申請',     need: 'memberEdit' },
     { id: 'fee',     label: '徴収管理',     need: 'fee' },
     { id: 'sales',   label: '物販管理',     need: 'sales', soon: true },
@@ -279,7 +280,7 @@
         (v.id === view || (view === 'member' && v.id === 'members') ? ' aria-current="page"' : '') + '>' + v.label + '</button>';
     }).join('');
     ({ home: renderHome, overall: renderOverall, members: renderMembers, member: renderMember,
-       changes: renderChanges, fee: renderFee, users: renderUsers }[view])();
+       apps: renderApplications, changes: renderChanges, fee: renderFee, users: renderUsers }[view])();
     window.scrollTo(0, 0);
   }
 
@@ -294,6 +295,7 @@
   var ENTRY_NOTE = {
     overall: '在籍数・期間ごとの出席日数',
     members: '会員の登録・編集、進級、出欠カレンダー',
+    apps:    '会員登録フォームの申込を確認して承認（承認すると予約できるようになります）',
     changes: '会員がフォームで送った登録内容の変更を確認して反映',
     fee:     '月会費の入金登録と未納の確認（年間一覧・月別）',
     sales:   '物販の申込・受け渡し（準備中）',
@@ -623,6 +625,56 @@
         return '<tr><td>' + ym.slice(0, 4) + '年' + Number(ym.slice(5)) + '月</td><td class="num">' + days.filter(inM).length +
           '</td><td class="num">' + st.att.sessionDays.filter(inM).length + '</td></tr>';
       }).join('') + '</tbody></table></div>' : '';
+  }
+
+  // ------------------------------------------------------------
+  // 入会申込：会員登録フォームの申込を確認して承認する
+  // ------------------------------------------------------------
+  function renderApplications() {
+    el('view').innerHTML = '<div class="card"><h2>入会申込</h2>' +
+      '<div class="muted">会員登録フォームの申込です。内容を確認して「承認」を押すと会員台帳に登録され、' +
+      '本人の LINE に「登録が完了しました」と届きます。承認するまでは予約できません。</div></div>' +
+      '<div id="alist" class="muted">読み込み中…</div>';
+    api('apiApplications', [], function (res) { if (st.view === 'apps') drawApplications(res.applications); }, true);
+  }
+
+  function drawApplications(list) {
+    el('alist').className = '';
+    if (!list.length) {
+      el('alist').innerHTML = '<div class="card muted">承認を待っている申込はありません。</div>';
+      return;
+    }
+    el('alist').innerHTML = list.map(function (a) {
+      return '<div class="card"><div class="row" style="margin-bottom:8px"><b class="grow" style="font-size:16px">' + esc(a.name || '（氏名なし）') + '</b>' +
+        '<span class="muted">送信 ' + esc(a.at) + '</span></div>' +
+        (a.warning ? '<div class="tag warn" style="margin-bottom:8px">' + esc(a.warning) + '</div>' : '') +
+        (a.line ? '' : '<div class="tag warn" style="margin-bottom:8px">LINE から送られていない申込です（承認しても LINE の連携と完了の連絡はできません）</div>') +
+        '<div class="tbl-wrap"><table><tbody>' + a.fields.map(function (f) {
+          return '<tr><th style="position:static;width:9em">' + esc(f.name) + '</th><td style="white-space:normal">' + esc(f.value) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<div class="row" style="margin-top:10px"><button type="button" class="btn pri" data-aok="' + a.row + '">承認する</button>' +
+        '<button type="button" class="btn" data-ang="' + a.row + '">見送る</button>' +
+        '<span class="muted">会費区分などは、承認後に会員個人管理で直せます。</span></div></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-aok]'), function (b) {
+      b.onclick = function () {
+        api('apiApplicationApprove', [Number(b.getAttribute('data-aok'))], function (res) {
+          st.members = null;
+          toast(res.name + 'さんを登録しました（' + res.memberId + '）' + (res.notified ? '。LINE で完了を知らせました' : ''));
+          drawApplications(res.applications);
+        });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ang]'), function (b) {
+      b.onclick = function () {
+        if (!confirm('この申込を登録せずに見送ります。本人への連絡は道場から行ってください。よろしいですか？')) return;
+        api('apiApplicationReject', [Number(b.getAttribute('data-ang'))], function (res) {
+          toast('見送りました');
+          drawApplications(res.applications);
+        });
+      };
+    });
   }
 
   // ------------------------------------------------------------
